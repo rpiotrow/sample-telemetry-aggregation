@@ -40,7 +40,7 @@ class SampleProducer[R, A](initial: A, effect: (VehicleSignalsSample, A) => ZIO[
       charging <- random.nextInt(100).map { _ < 5 }
       speedDifference <- random.nextInt(20)
       newSpeed <- if (charging) ZIO.succeed(0.0f) else newRandomSpeed(vehicle.speed, speedDifference)
-      distance <- random.nextInt(1500).map { v => BigDecimal( v / 1000.0) }
+      distance <- random.nextInt(1500).map { v => BigDecimal(v / 1000.0d) }
     } yield vehicle.copy(speed = newSpeed, odometer = vehicle.odometer + distance, isCharging = charging)
   }
 

@@ -8,6 +8,7 @@ case class Aggregation(
   maximumSpeed: Float,
   lastMessage: Date,
   numberOfCharges: Long,
-  firstMessage: Date,
-  odometerFirstValue: Double
+  isCharging: Boolean,
+  firstUptimeValue: Long,
+  odometerFirstValue: BigDecimal
 )

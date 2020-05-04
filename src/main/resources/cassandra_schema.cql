@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS vehicle.aggregation (
   maximumSpeed FLOAT,
   lastMessage TIMESTAMP,
   numberOfCharges BIGINT,
-  firstMessage TIMESTAMP,
-  odometerFirstValue DOUBLE,
+  isCharging BOOLEAN,
+  firstUptimeValue BIGINT,
+  odometerFirstValue DECIMAL,
   PRIMARY KEY (vehicleId)
 ) WITH compaction = { 'class' :  'LeveledCompactionStrategy'  };
