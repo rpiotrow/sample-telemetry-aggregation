@@ -5,14 +5,23 @@ version := "0.0.1-SNAPSHOT"
 scalaVersion := "2.12.11"
 
 libraryDependencies ++= Seq(
-  "dev.zio" %% "zio-kafka" % "0.8.0",
-  "dev.zio" %% "zio-interop-monix" % "3.1.0.0-RC2",
+  "dev.zio" %% "zio-kafka" % Versions.zioKafka,
+  "dev.zio" %% "zio-interop-monix" % Versions.zioMonix,
 
-  "io.getquill" %% "quill-cassandra-monix" % "3.5.1",
+  "io.getquill" %% "quill-cassandra-monix" % Versions.quill,
 
-  "org.slf4j" % "slf4j-api" % "1.7.30",
-  "org.slf4j" % "slf4j-simple" % "1.7.30"
+  "io.circe" %% "circe-core" % Versions.circe,
+  "io.circe" %% "circe-generic" % Versions.circe,
+  "io.circe" %% "circe-parser" % Versions.circe,
+
+  "org.slf4j" % "slf4j-api" % Versions.slf4j,
+  "org.slf4j" % "slf4j-simple" % Versions.slf4j,
+
+  "dev.zio" %% "zio-test"     % Versions.zio   % "test",
+  "dev.zio" %% "zio-test-sbt" % Versions.zio   % "test"
 )
+
+testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 
 scalacOptions ++= Seq(
   "-deprecation",
