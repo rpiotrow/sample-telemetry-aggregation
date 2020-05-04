@@ -4,24 +4,33 @@ import java.util.Date
 
 import com.siili.aggregation.persistance.Aggregation
 import com.siili.aggregation.processing.VehicleSignalsSample
-import zio.{Task, ZIO}
+import zio.console.Console
+import zio._
 import zio.stm.TMap
 
-class Consumer(private val tMap: TMap[String, Aggregation]) {
+class SampleConsumer(private val tMap: TMap[String, Aggregation]) {
 
-  def process(batch: List[VehicleSignalsSample]): Task[Unit] = {
+  def process(batch: List[VehicleSignalsSample]): ZIO[Console, Throwable, Unit] = {
     val taskList = batch.map { sample =>
       (for {
-        maybe <- tMap.get(sample.vehicleId)
-        value  = maybe.orElse(readAggregation(sample.vehicleId)).fold(initialAggregation(sample))(a => processSample(a, sample))
-        _ <- tMap.put(sample.vehicleId, value)
-      } yield ()).commit
+        maybeAggregation <- tMap.get(sample.vehicleId)
+        aggregation = processSample(maybeAggregation, sample)
+        _ <- tMap.put(sample.vehicleId, aggregation)
+      } yield sample.vehicleId).commit
     }
-    ZIO.collectAll(taskList).map{ _ => ()} // TODO: update changed
+    ZIO.collectAll(taskList).flatMap { ids =>
+      ZIO.collectAll(ids.toSet.map(writeAggregation(_)))
+    }.map(_ => ())
   }
 
   def getAggregations() = tMap.toMap.commit
   def getAggregation(vehicleId: String) = tMap.get(vehicleId).commit
+
+  private def processSample(maybeAggregation: Option[Aggregation], sample: VehicleSignalsSample): Aggregation = {
+    maybeAggregation
+      .orElse(readAggregation(sample.vehicleId))
+      .fold(initialAggregation(sample))(a => processSample(a, sample))
+  }
 
   private def processSample(a: Aggregation, sample: VehicleSignalsSample): Aggregation = {
     val now = new Date()
@@ -45,7 +54,15 @@ class Consumer(private val tMap: TMap[String, Aggregation]) {
     BigDecimal(sample.signalValues.uptime - a.firstUptimeValue) / BigDecimal(1000.0 * 60.0 * 60.0)
   }
 
-  private def readAggregation(vehicleId: String): Option[Aggregation] = None //TODO: read from AggregationRepo
+  //TODO: read from AggregationRepo
+  private def readAggregation(vehicleId: String): Option[Aggregation] = None
+
+  //TODO: write using AggregationRepo
+  private def writeAggregation(vehicleId: String): ZIO[Console, Throwable, Unit] =
+    for {
+      v <- tMap.get(vehicleId).commit
+      _ <- zio.console.putStrLn(v.fold("empty")(_.toString))
+    } yield ()
 
   private def initialAggregation(sample: VehicleSignalsSample) = {
     Aggregation(

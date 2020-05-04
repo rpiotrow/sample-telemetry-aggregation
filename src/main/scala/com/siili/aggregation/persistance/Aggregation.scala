@@ -11,4 +11,8 @@ case class Aggregation(
   isCharging: Boolean,
   firstUptimeValue: Long,
   odometerFirstValue: BigDecimal
-)
+) {
+  override def toString: String = {
+    s"Aggregation(id=$vehicleId, avg=$averageSpeed, max=$maximumSpeed, charges=$numberOfCharges, charging=$isCharging)"
+  }
+}

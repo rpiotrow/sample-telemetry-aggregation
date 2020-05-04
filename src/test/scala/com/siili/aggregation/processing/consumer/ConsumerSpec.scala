@@ -12,7 +12,7 @@ object ConsumerSpec extends DefaultRunnableSpec {
 
   val initialConsumer = (for {
     tMap <- TMap.empty[String, Aggregation]
-  } yield new Consumer(tMap)).commit
+  } yield new SampleConsumer(tMap)).commit
 
   def spec = suite("SampleProducerSpec")(
     testM("process empty list") {

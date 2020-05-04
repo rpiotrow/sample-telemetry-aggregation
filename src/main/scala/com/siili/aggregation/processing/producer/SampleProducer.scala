@@ -6,10 +6,32 @@ import java.util.UUID
 
 import com.siili.aggregation.processing.{SignalValues, VehicleSignalsSample}
 import zio._
+import zio.console.Console
 import zio.random.Random
 import zio.stream._
 
-class SampleProducer[R, A](initial: A, effect: (VehicleSignalsSample, A) => ZIO[R, Throwable, A]) {
+class SampleProducer[R, A](
+  private val initial: A,
+  private val effect: (VehicleSignalsSample, A) => ZIO[R, Throwable, A]
+) {
+
+  def produce[RS](
+    numberOfVehicles: Int,
+    schedule: Schedule[RS, Any, Any]
+  ): ZIO[R with RS with Random with Console, Throwable, A] = {
+    for {
+      initialVehicles <- newVehicles(numberOfVehicles)
+      a <- ZStream.fromSchedule(schedule).foldM((initialVehicles, initial)) { (t, _) =>
+        val (vehicles, state) = t
+        for {
+          index <- random.nextInt(numberOfVehicles)
+          vehicle = vehicles(index)
+          newState <- effect(sample(vehicle), state)
+          moved <- moveVehicle(vehicle)
+        } yield (vehicles.updated(index, moved), newState)
+      }
+    } yield a._2
+  }
 
   private case class SimulatedVehicle(
      vehicleId: String,
@@ -60,20 +82,5 @@ class SampleProducer[R, A](initial: A, effect: (VehicleSignalsSample, A) => ZIO[
       isCharging = vehicle.isCharging
     )
   )
-
-  def produce[RS](numberOfVehicles: Int, schedule: Schedule[RS, Any, Any]): ZIO[R with RS with Random, Throwable, A] = {
-    for {
-      initialVehicles <- newVehicles(numberOfVehicles)
-      a <- ZStream.fromSchedule(schedule).foldM((initialVehicles, initial)) { (t, _) =>
-        val (vehicles, state) = t
-        for {
-          index <- random.nextInt(numberOfVehicles)
-          vehicle = vehicles(index)
-          newState <- effect(sample(vehicle), state)
-          moved <- moveVehicle(vehicle)
-        } yield (vehicles.updated(index, moved), newState)
-      }
-    } yield a._2
-  }
 
 }
