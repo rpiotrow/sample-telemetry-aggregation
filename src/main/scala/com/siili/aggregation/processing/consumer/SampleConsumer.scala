@@ -6,7 +6,8 @@ import com.siili.aggregation.persistance.{Aggregation, AggregationRepo}
 import com.siili.aggregation.processing.VehicleSignalsSample
 import zio.console.{Console, putStrLn}
 import zio._
-import zio.stm.TMap
+import zio.stream._
+import zio.stm._
 
 class SampleConsumer(
   private val tMap: TMap[String, Aggregation],
@@ -14,14 +15,16 @@ class SampleConsumer(
 ) {
 
   def process(batch: List[VehicleSignalsSample]): ZIO[Console, Throwable, Unit] = {
-    val taskList = batch.map { sample =>
-      for {
-        aggregation <- aggregate(sample.vehicleId, sample)
-        _ <- tMap.put(sample.vehicleId, aggregation).commit
-      } yield sample.vehicleId
-    }
-    ZIO.collectAll(taskList).flatMap { ids =>
-      ZIO.collectAll(ids.toSet.map { id: String => writeAggregation(id) })
+    Stream.fromIterable(batch).groupByKey(_.vehicleId) { case (_, s) =>
+      s.mapM { sample => for {
+          aggregation <- aggregate(sample.vehicleId, sample)
+          _ <- tMap.put(sample.vehicleId, aggregation).commit
+        } yield sample.vehicleId
+      }
+    }.runCollect.flatMap { ids =>
+      Stream.fromIterable(ids.toSet)
+        .mapMParUnordered(16) { id: String => writeAggregation(id) }
+        .run(Sink.drain)
     }.map(_ => ())
   }
 
@@ -36,17 +39,23 @@ class SampleConsumer(
     } yield aggregation
 
   private def processSample(a: Aggregation, sample: VehicleSignalsSample): Aggregation = {
-    val now = new Date()
-    a.copy(
-      lastMessage = now,
-      averageSpeed = (kmDistance(a, sample) / hourUptime(a, sample)).toFloat,
-      maximumSpeed = Math.max(a.maximumSpeed, sample.signalValues.currentSpeed),
-      numberOfCharges = (a.isCharging, sample.signalValues.isCharging) match {
-        case (false, true) => a.numberOfCharges + 1
-        case _ => a.numberOfCharges
-      },
-      isCharging = sample.signalValues.isCharging
-    )
+    if (sample.recordedAt.isBefore(a.lastMessage.toInstant)) {
+      // for outdated samples update only maximum speed
+      a.copy(
+        maximumSpeed = Math.max(a.maximumSpeed, sample.signalValues.currentSpeed)
+      )
+    } else {
+      a.copy(
+        lastMessage = new Date(sample.recordedAt.toEpochMilli),
+        averageSpeed = (kmDistance(a, sample) / hourUptime(a, sample)).toFloat,
+        maximumSpeed = Math.max(a.maximumSpeed, sample.signalValues.currentSpeed),
+        numberOfCharges = (a.isCharging, sample.signalValues.isCharging) match {
+          case (false, true) => a.numberOfCharges + 1
+          case _ => a.numberOfCharges
+        },
+        isCharging = sample.signalValues.isCharging
+      )
+    }
   }
 
   private def kmDistance(a: Aggregation, sample: VehicleSignalsSample): BigDecimal = {
@@ -69,7 +78,7 @@ class SampleConsumer(
 
   private def writeAggregation(a: Aggregation): ZIO[Console, Throwable, Unit] = {
     aggregationRepo.update(a) *>
-      putStrLn(s"aggregation for ${a.vehicleId} stored to Cassandra")
+      putStrLn(s"aggregation $a stored in Cassandra")
   }
 
   private def initialAggregation(sample: VehicleSignalsSample) = {

@@ -1,7 +1,7 @@
 package com.siili.aggregation.processing.producer
 
 import java.lang.Math.{max, min}
-import java.time.Instant
+import java.time.{Duration, Instant}
 import java.util.UUID
 
 import com.siili.aggregation.processing.{SignalValues, VehicleSignalsSample}
@@ -25,10 +25,9 @@ class SampleProducer[R, A](
         val (vehicles, state) = t
         for {
           index <- random.nextInt(numberOfVehicles)
-          vehicle = vehicles(index)
+          vehicle <- moveVehicle(vehicles(index))
           newState <- effect(sample(vehicle), state)
-          moved <- moveVehicle(vehicle)
-        } yield (vehicles.updated(index, moved), newState)
+        } yield (vehicles.updated(index, vehicle), newState)
       }
     } yield a._2
   }
@@ -38,7 +37,8 @@ class SampleProducer[R, A](
      created: Instant,
      odometer: BigDecimal,
      speed: Float,
-     isCharging: Boolean
+     isCharging: Boolean,
+     lastChange: Instant
    ) {
     override def toString: String = {
       s"SimulatedVehicle(id=$vehicleId, odometer=$odometer, speed=$speed, charging=$isCharging)"
@@ -49,7 +49,14 @@ class SampleProducer[R, A](
     for {
       id <- ZIO.effect(UUID.randomUUID().toString)
       speed <- random.nextInt(70)
-    } yield SimulatedVehicle(id, Instant.now(), 0, speed, false)
+    } yield SimulatedVehicle(
+        vehicleId = id,
+        created = Instant.now(),
+        odometer = 0,
+        speed = speed,
+        isCharging = false,
+        lastChange = Instant.now()
+      )
   }
 
   private def newVehicles(numberOfVehicles: Int): ZIO[Random, Throwable, Vector[SimulatedVehicle]] = {
@@ -59,16 +66,31 @@ class SampleProducer[R, A](
 
   private def moveVehicle(vehicle: SimulatedVehicle): ZIO[Random, Throwable, SimulatedVehicle] = {
     for {
-      charging <- random.nextInt(100).map { _ < 5 }
+      charging <- random.nextInt(100).map { r => if (r < 5) !vehicle.isCharging else vehicle.isCharging }
       speedDifference <- random.nextInt(20)
       newSpeed <- if (charging) ZIO.succeed(0.0f) else newRandomSpeed(vehicle.speed, speedDifference)
-      distance <- random.nextInt(1500).map { v => BigDecimal(v / 1000.0d) }
-    } yield vehicle.copy(speed = newSpeed, odometer = vehicle.odometer + distance, isCharging = charging)
+      distance = calculateMovedDistance(vehicle)
+    } yield vehicle.copy(
+      speed = newSpeed,
+      odometer = vehicle.odometer + distance,
+      isCharging = charging,
+      lastChange = Instant.now()
+    )
   }
 
   private def newRandomSpeed(currentSpeed: Float, speedDifference: Int) = {
     random.nextBoolean.map { accelerate =>
       max(0.0f, min(140.0f, if (accelerate) currentSpeed + speedDifference else currentSpeed - speedDifference))
+    }
+  }
+
+  private def calculateMovedDistance(vehicle: SimulatedVehicle): BigDecimal = {
+    if (vehicle.speed.toDouble > 0.0d) {
+      val timeInHours = BigDecimal(Duration.between(vehicle.lastChange, Instant.now()).toMillis) / BigDecimal(1000 * 60 * 60)
+      val distanceInKm = BigDecimal(vehicle.speed.toDouble) * timeInHours
+      distanceInKm
+    } else {
+      0
     }
   }
 

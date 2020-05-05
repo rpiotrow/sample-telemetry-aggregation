@@ -84,6 +84,21 @@ object ConsumerSpec extends DefaultRunnableSpec {
         hasField("numberOfCharges", (a:Aggregation) => a.numberOfCharges, equalTo(1L))
       )
     },
+    testM("update only max speed for sample that came not in order (from the past)") {
+      val sample1 = initialSample()
+      val sample2 = updateSampleForMove(sample1, 20f)
+      val sample3 = updateSampleForMove(sample2, 15f)
+      for {
+        c <- initialConsumer
+        _ <- c.process(List(sample1, sample3, sample2))
+        a <- c.getAggregation("1").get
+      } yield assert(a)(
+        hasField("averageSpeed", (a:Aggregation) => a.averageSpeed, equalTo(72.0f))
+          && hasField("maximumSpeed", (a:Aggregation) => a.maximumSpeed, equalTo(20.0f))
+          && hasField("numberOfCharges", (a:Aggregation) => a.numberOfCharges, equalTo(0L))
+          && hasField("lastMessage", (a:Aggregation) => a.lastMessage.toInstant, equalTo(sample3.recordedAt))
+      )
+    },
   )
 
   private def initialSample(vehicleId: String = "1") = VehicleSignalsSample(

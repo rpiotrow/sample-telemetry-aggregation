@@ -11,7 +11,7 @@ object Main extends App {
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] = {
     val app = ZIO.raceAll(
       KafkaReceiver.receive(),
-      List(KafkaSender.produce(10, Schedule.spaced(10.milliseconds)))
+      List(KafkaSender.produce(200, Schedule.spaced(1.nanosecond)))
     )
     val receiver = (AggregationRepo.live ++ ZEnv.live) >>> KafkaReceiver.live
     app.provideSomeLayer[ZEnv](KafkaSender.live ++ receiver).foldM(
