@@ -2,17 +2,23 @@ package com.siili.aggregation.processing.consumer
 
 import java.time.Instant
 
-import com.siili.aggregation.persistance.Aggregation
+import com.siili.aggregation.persistance.{Aggregation, AggregationRepo}
 import com.siili.aggregation.processing.{SignalValues, VehicleSignalsSample}
+import zio.Task
 import zio.stm.TMap
 import zio.test._
 import zio.test.Assertion._
 
 object ConsumerSpec extends DefaultRunnableSpec {
 
+  private class NonOpAggregationRepo extends AggregationRepo.Service {
+    override def read(vehicleId: String): Task[Option[Aggregation]] = Task.succeed(None)
+    override def update(aggregation: Aggregation): Task[Unit] = Task.succeed(())
+  }
+
   val initialConsumer = (for {
     tMap <- TMap.empty[String, Aggregation]
-  } yield new SampleConsumer(tMap)).commit
+  } yield new SampleConsumer(tMap, new NonOpAggregationRepo())).commit
 
   def spec = suite("SampleProducerSpec")(
     testM("process empty list") {

@@ -20,7 +20,7 @@ class KafkaReceiverService(
       .subscribeAnd(Subscription.topics(topic))
       .plainStream(Serde.string, VehicleSignalsSample.serde)
       .flattenChunks
-      .groupedWithin(10000, 10.seconds)
+      .groupedWithin(50, 10.seconds)
       .mapM { batch =>
         putStrLn(s"batch size ${batch.size}") *> process(batch) *> commit(batch)
       }

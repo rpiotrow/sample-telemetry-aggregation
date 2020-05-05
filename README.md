@@ -43,3 +43,4 @@ $ sbt run
  
  * [zio](https://zio.dev/) - as runtime, for streaming  and for accessing Kafka
  * [squill](https://getquill.io/) - for accessing Cassandra database
+ * [circe](https://circe.github.io/circe/) - for JSON serialization

@@ -1,4 +1,5 @@
 package com.siili.aggregation.persistance
+
 import io.getquill.{CamelCase, CassandraMonixContext}
 import monix.execution.Scheduler.Implicits.global
 import zio.interop.monix._
@@ -21,6 +22,7 @@ class AggregationCassandraRepo(ctx: CassandraMonixContext[CamelCase.type]) exten
   override def update(aggregation: Aggregation): zio.Task[Unit] = {
     IO.fromTask {
       ctx.run(quote {
+        implicit val aggregationUpdatetMeta = updateMeta[Aggregation](_.vehicleId)
         aggregationById(aggregation.vehicleId).update(lift(aggregation))
       })
     }

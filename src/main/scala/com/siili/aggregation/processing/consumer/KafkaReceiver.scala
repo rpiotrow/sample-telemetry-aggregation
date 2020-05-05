@@ -1,6 +1,6 @@
 package com.siili.aggregation.processing.consumer
 
-import com.siili.aggregation.persistance.Aggregation
+import com.siili.aggregation.persistance.{Aggregation, AggregationRepo}
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import zio.blocking.Blocking
 import zio.clock.Clock
@@ -11,11 +11,14 @@ import zio._
 import zio.duration._
 
 object KafkaReceiver {
+
+  type KafkaReceiverEnv = Clock with Blocking with Console
+
   trait Service {
-    def receive(): ZIO[Clock with Blocking with Console, Throwable, Unit]
+    def receive(): ZIO[KafkaReceiverEnv, Throwable, Unit]
   }
 
-  def receive(): ZIO[KafkaReceiver with Console with Blocking with Clock, Throwable, Unit] =
+  def receive(): ZIO[KafkaReceiver with KafkaReceiverEnv, Throwable, Unit] =
     ZIO.accessM(_.get.receive())
 
   private val kafkaConsumer: ZLayer[Clock with Blocking, Throwable, Consumer] = {
@@ -27,15 +30,18 @@ object KafkaReceiver {
     Consumer.make(consumerSettings)
   }
 
-  private val sampleConsumer: Layer[Throwable, Has[SampleConsumer]] = ZLayer.fromFunctionM(_ => (for {
-    tMap <- TMap.empty[String, Aggregation]
-  } yield new SampleConsumer(tMap)).commit)
+  private val sampleConsumer: ZLayer[AggregationRepo, Throwable, Has[SampleConsumer]] =
+    ZLayer.fromServiceM(repo =>
+      (for {
+        tMap <- TMap.empty[String, Aggregation]
+      } yield new SampleConsumer(tMap, repo)).commit
+    )
 
   private val kafkaReceiver: ZLayer[Consumer with Has[SampleConsumer], Throwable, KafkaReceiver] =
     ZLayer.fromServices[Consumer.Service, SampleConsumer, KafkaReceiver.Service] { (kafkaConsumer, sampleConsumer) =>
       new KafkaReceiverService("topicName", kafkaConsumer, sampleConsumer)
     }
 
-  val live: ZLayer[Clock with Blocking, Throwable, KafkaReceiver] =
+  val live: ZLayer[AggregationRepo with KafkaReceiverEnv, Throwable, KafkaReceiver] =
     (kafkaConsumer ++ sampleConsumer) >>> kafkaReceiver
 }

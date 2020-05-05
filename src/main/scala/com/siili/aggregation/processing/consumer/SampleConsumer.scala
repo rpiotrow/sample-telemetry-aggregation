@@ -2,35 +2,38 @@ package com.siili.aggregation.processing.consumer
 
 import java.util.Date
 
-import com.siili.aggregation.persistance.Aggregation
+import com.siili.aggregation.persistance.{Aggregation, AggregationRepo}
 import com.siili.aggregation.processing.VehicleSignalsSample
-import zio.console.Console
+import zio.console.{Console, putStrLn}
 import zio._
 import zio.stm.TMap
 
-class SampleConsumer(private val tMap: TMap[String, Aggregation]) {
+class SampleConsumer(
+  private val tMap: TMap[String, Aggregation],
+  private val aggregationRepo: AggregationRepo.Service
+) {
 
   def process(batch: List[VehicleSignalsSample]): ZIO[Console, Throwable, Unit] = {
     val taskList = batch.map { sample =>
-      (for {
-        maybeAggregation <- tMap.get(sample.vehicleId)
-        aggregation = processSample(maybeAggregation, sample)
-        _ <- tMap.put(sample.vehicleId, aggregation)
-      } yield sample.vehicleId).commit
+      for {
+        aggregation <- aggregate(sample.vehicleId, sample)
+        _ <- tMap.put(sample.vehicleId, aggregation).commit
+      } yield sample.vehicleId
     }
     ZIO.collectAll(taskList).flatMap { ids =>
-      ZIO.collectAll(ids.toSet.map(writeAggregation(_)))
+      ZIO.collectAll(ids.toSet.map { id: String => writeAggregation(id) })
     }.map(_ => ())
   }
 
   def getAggregations() = tMap.toMap.commit
   def getAggregation(vehicleId: String) = tMap.get(vehicleId).commit
 
-  private def processSample(maybeAggregation: Option[Aggregation], sample: VehicleSignalsSample): Aggregation = {
-    maybeAggregation
-      .orElse(readAggregation(sample.vehicleId))
-      .fold(initialAggregation(sample))(a => processSample(a, sample))
-  }
+  private def aggregate(vehicleId: String, sample: VehicleSignalsSample): ZIO[Any, Throwable, Aggregation] =
+    for {
+      fromMemory <- tMap.get(vehicleId).commit
+      fromMemoryOrDb <- fromMemory.fold(aggregationRepo.read(vehicleId))(a => ZIO.succeed(Some(a)))
+      aggregation = fromMemoryOrDb.fold(initialAggregation(sample))(a => processSample(a, sample))
+    } yield aggregation
 
   private def processSample(a: Aggregation, sample: VehicleSignalsSample): Aggregation = {
     val now = new Date()
@@ -54,15 +57,20 @@ class SampleConsumer(private val tMap: TMap[String, Aggregation]) {
     BigDecimal(sample.signalValues.uptime - a.firstUptimeValue) / BigDecimal(1000.0 * 60.0 * 60.0)
   }
 
-  //TODO: read from AggregationRepo
-  private def readAggregation(vehicleId: String): Option[Aggregation] = None
-
-  //TODO: write using AggregationRepo
   private def writeAggregation(vehicleId: String): ZIO[Console, Throwable, Unit] =
     for {
       v <- tMap.get(vehicleId).commit
-      _ <- zio.console.putStrLn(v.fold("empty")(_.toString))
+      _ <- v.fold(noAggregationError(vehicleId))(writeAggregation)
     } yield ()
+
+  private def noAggregationError(vehicleId: String): ZIO[Console, Throwable, Unit] = {
+    ZIO.fail(new RuntimeException(s"there is no aggregation for $vehicleId in the memory!"))
+  }
+
+  private def writeAggregation(a: Aggregation): ZIO[Console, Throwable, Unit] = {
+    aggregationRepo.update(a) *>
+      putStrLn(s"aggregation for ${a.vehicleId} stored to Cassandra")
+  }
 
   private def initialAggregation(sample: VehicleSignalsSample) = {
     Aggregation(
